@@ -52,11 +52,27 @@ export interface JSONSchema7WithSubSchema extends JSONSchema7 {
 }
 
 export const basicTypes = ['number', 'integer', 'string', 'boolean', 'null'];
-export const isBasicType = (type: JSONSchemaTypeNameUnion): type is BasicTypeName => (
-  type !== undefined
-  && !Array.isArray(type)
-  && basicTypes.includes(type)
+
+// The LinkML JSON Schema generator emits nullable fields as a type union of
+// the form [X, "null"] (e.g. ["string", "null"], ["array", "null"]). For the
+// purpose of Meditor's basic/complex/array/object classification, treat such
+// a union as if the schema's type were just X — nullability is orthogonal to
+// which UI to render. Only this exact shape is accepted; genuine multi-type
+// unions like ["string", "number"] are still rejected.
+const matchesType = (type: JSONSchemaTypeNameUnion, kind: JSONSchema7TypeName): boolean => (
+  type === kind
+  || (Array.isArray(type)
+    && type.includes(kind)
+    && type.every((t) => t === kind || t === 'null'))
 );
+
+export const isBasicType = (type: JSONSchemaTypeNameUnion): type is BasicTypeName => {
+  if (type === undefined) return false;
+  if (!Array.isArray(type)) return basicTypes.includes(type);
+  // Array form: accept iff it is exactly one basic type, optionally plus "null".
+  const nonNull = type.filter((t) => t !== 'null');
+  return nonNull.length === 1 && basicTypes.includes(nonNull[0]);
+};
 
 export const isJSONSchema = (schema: JSONSchemaUnionType): schema is JSONSchema7 => (
   typeof schema !== 'boolean'
@@ -69,13 +85,13 @@ export const isBasicSchema = (schema: JSONSchemaUnionType): schema is BasicSchem
 );
 
 export const isObjectSchema = (schema: JSONSchemaUnionType): schema is ObjectSchema => (
-  isJSONSchema(schema) && schema.properties !== undefined && schema.type === 'object'
+  isJSONSchema(schema) && schema.properties !== undefined && matchesType(schema.type, 'object')
 );
 
 export const isArraySchema = (schema: JSONSchemaUnionType): schema is BasicArraySchema => (
   isJSONSchema(schema)
   && schema.items !== undefined
-  && schema.type === 'array'
+  && matchesType(schema.type, 'array')
 );
 
 export const isBasicArraySchema = (schema: JSONSchemaUnionType): schema is BasicArraySchema => (

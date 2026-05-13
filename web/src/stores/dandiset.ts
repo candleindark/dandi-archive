@@ -6,7 +6,7 @@ import RefParser from '@apidevtools/json-schema-ref-parser';
 import { dandiRest, user } from '@/rest';
 import type { User, Version } from '@/types';
 import { draftVersion } from '@/utils/constants';
-import { fixSchema } from '@/utils/schema';
+import { fixSchema, stripRedundantAnyRefs } from '@/utils/schema';
 
 
 function isUnauthenticatedOrForbidden(err: unknown) {
@@ -117,7 +117,21 @@ export const useDandisetStore = defineStore('dandiset', {
         throw new Error('Could not retrieve Dandiset Schema!');
       }
 
-      const schema = await RefParser.dereference(res.data);
+      // pydantic2linkml encodes union ranges as `{$ref: "#/$defs/Any", anyOf:
+      // [...]}`. Dereferencing leaves an over-specified hybrid that breaks
+      // json-layout when it compiles a fresh form (e.g. ADD ITEM). Strip the
+      // redundant $ref before dereference so we get the equivalent anyOf-only
+      // shape.
+      stripRedundantAnyRefs(res.data);
+
+      // The Dandiset schema can contain self-referential types (e.g.
+      // PropertyValue.valueReference is itself a PropertyValue). Tell
+      // RefParser to leave circular $refs in place rather than inlining them
+      // into a real JS cycle, which would break both fixSchema's traversal
+      // and Vue's reactivity proxy.
+      const schema = await RefParser.dereference(res.data, {
+        dereference: { circular: 'ignore' },
+      });
 
       this.schema = fixSchema(schema);
     },

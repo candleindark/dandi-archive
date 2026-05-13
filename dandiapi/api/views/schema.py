@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dandischema.models import Asset, Dandiset, PublishedAsset, PublishedDandiset
@@ -11,6 +13,14 @@ from rest_framework.response import Response
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+
+# Experimentally serve the LinkML-derived Dandiset JSON Schema instead of the
+# one generated from the Pydantic Dandiset model. The file lives in the
+# linkml-auto-converted branch of the local dandi-schema checkout.
+_LINKML_DANDISET_SCHEMA_PATH = Path(
+    '/Users/isaac/Developer/Dartmouth/dandi-schema/dandischema/models_linkml/dandiset.json'
+)
 
 
 _model_name_mapping = {
@@ -53,8 +63,14 @@ def schema_view(request: Request) -> Response:
     serializer = SchemaQuerySerializer(data=request.query_params)
     serializer.is_valid(raise_exception=True)
 
+    model_name = serializer.validated_data['model']
+    if model_name == 'Dandiset':
+        with _LINKML_DANDISET_SCHEMA_PATH.open() as f:
+            schema = json.load(f)
+        return Response(schema)
+
     # Generate the JSON schema using the same approach as dandischema
-    model_class = _model_name_mapping[serializer.validated_data['model']]
+    model_class = _model_name_mapping[model_name]
     schema = model_class.model_json_schema(schema_generator=TransitionalGenerateJsonSchema)
 
     return Response(schema)
